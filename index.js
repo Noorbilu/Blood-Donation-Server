@@ -140,11 +140,11 @@ async function run() {
       }
     });
 
-    // status update (active / blocked) -> admin
+
     app.patch('/users/:id/status', async (req, res) => {
       try {
         const id = req.params.id;
-        const { status } = req.body; // 'active' | 'blocked'
+        const { status } = req.body; 
 
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(id) },
