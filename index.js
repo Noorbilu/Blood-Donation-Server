@@ -110,9 +110,7 @@ async function run() {
     app.patch('/users/profile/:email', async (req, res) => {
       try {
         const email = req.params.email;
-        const updated = req.body; // { name, avatar?, bloodGroup, district, upazila }
-
-        // এগুলো যেন ভুলে কেউ override না করতে পারে
+        const updated = req.body;
         delete updated.email;
         delete updated.role;
         delete updated.status;
@@ -144,7 +142,7 @@ async function run() {
     app.patch('/users/:id/status', async (req, res) => {
       try {
         const id = req.params.id;
-        const { status } = req.body; 
+        const { status } = req.body;
 
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(id) },
