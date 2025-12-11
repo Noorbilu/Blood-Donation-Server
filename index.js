@@ -25,7 +25,7 @@ async function run() {
   try {
     await client.connect();
 
-const db = client.db('bloodDonation_db');
+    const db = client.db('bloodDonation_db');
     const DonationCollection = db.collection('donation-requests');
     const usersCollection = db.collection('users');
     const fundingCollection = db.collection('fundings'); // future Funding page
@@ -55,41 +55,80 @@ const db = client.db('bloodDonation_db');
     });
 
     // All users list (admin panel) + optional status filter (active/blocked)
-// All users list (admin panel, search page) + optional filters
-app.get('/users', async (req, res) => {
-  try {
-    const { status, role, bloodGroup, district, upazila } = req.query;
-    const query = {};
+    // All users list (admin panel, search page) + optional filters
+    app.get('/users', async (req, res) => {
+      try {
+        const { status, role, bloodGroup, district, upazila } = req.query;
+        const query = {};
 
-    if (status) {
-      query.status = status; // active | blocked
-    }
-    if (role) {
-      query.role = role; // donor | admin | volunteer
-    }
-    if (bloodGroup) {
-      query.bloodGroup = bloodGroup;
-    }
-    if (district) {
-      query.district = district;
-    }
-    if (upazila) {
-      query.upazila = upazila;
-    }
+        if (status) {
+          query.status = status; // active | blocked
+        }
+        if (role) {
+          query.role = role; // donor | admin | volunteer
+        }
+        if (bloodGroup) {
+          query.bloodGroup = bloodGroup;
+        }
+        if (district) {
+          query.district = district;
+        }
+        if (upazila) {
+          query.upazila = upazila;
+        }
 
-    const users = await usersCollection
-      .find(query)
-      .sort({ createdAt: -1 })
-      .toArray();
+        const users = await usersCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
 
-    res.send(users);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send({ message: 'Failed to get users' });
-  }
-});
+        res.send(users);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Failed to get users' });
+      }
+    });
 
-    
+    // Get full profile by email
+    app.get('/users/profile/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const user = await usersCollection.findOne({ email });
+
+        if (!user) {
+          return res.status(404).send({ message: 'User not found' });
+        }
+
+        res.send(user);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Failed to get user profile' });
+      }
+    });
+
+    // Update profile (except email/role/status)
+    app.patch('/users/profile/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const updated = req.body; // { name, avatar?, bloodGroup, district, upazila }
+
+        // এগুলো যেন ভুলে কেউ override না করতে পারে
+        delete updated.email;
+        delete updated.role;
+        delete updated.status;
+
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: updated }
+        );
+
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: 'Failed to update user profile' });
+      }
+    });
+
     app.get('/users/:email/role', async (req, res) => {
       try {
         const email = req.params.email;
