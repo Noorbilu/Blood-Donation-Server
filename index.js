@@ -89,7 +89,7 @@ app.get('/users', async (req, res) => {
   }
 });
 
-    // নির্দিষ্ট user-এর role (frontend useRole hook এর জন্য)
+    
     app.get('/users/:email/role', async (req, res) => {
       try {
         const email = req.params.email;
