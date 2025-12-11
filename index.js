@@ -13,6 +13,8 @@ app.use(cors());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@laa.0ndrbne.mongodb.net/?appName=Laa`;
 
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -28,11 +30,11 @@ async function run() {
     const db = client.db('bloodDonation_db');
     const DonationCollection = db.collection('donation-requests');
     const usersCollection = db.collection('users');
-    const fundingCollection = db.collection('fundings'); // future Funding page
+    const fundingCollection = db.collection('fundings');
 
     /* -------------------------------- USERS -------------------------------- */
 
-    // registration শেষে client থেকে POST /users
+    // registration এর পরে client থেকে POST /users
     app.post('/users', async (req, res) => {
       try {
         const user = req.body; // { name, email, avatar, bloodGroup, district, upazila }
@@ -54,7 +56,6 @@ async function run() {
       }
     });
 
-    // All users list (admin panel) + optional status filter (active/blocked)
     // All users list (admin panel, search page) + optional filters
     app.get('/users', async (req, res) => {
       try {
@@ -89,7 +90,7 @@ async function run() {
       }
     });
 
-    // Get full profile by email
+    // full profile by email
     app.get('/users/profile/:email', async (req, res) => {
       try {
         const email = req.params.email;
@@ -127,6 +128,7 @@ async function run() {
       }
     });
 
+    // role read
     app.get('/users/:email/role', async (req, res) => {
       try {
         const email = req.params.email;
@@ -138,7 +140,7 @@ async function run() {
       }
     });
 
-
+    // status update (active / blocked)
     app.patch('/users/:id/status', async (req, res) => {
       try {
         const id = req.params.id;
@@ -156,7 +158,7 @@ async function run() {
       }
     });
 
-    // role update (donor / volunteer / admin) -> admin
+    // role update (donor / volunteer / admin)
     app.patch('/users/:id/role', async (req, res) => {
       try {
         const id = req.params.id;
@@ -213,7 +215,7 @@ async function run() {
           query.requesterEmail = email;
         }
 
-        // admin/volunteer filter by status
+        // admin/volunteer/public filter by status
         if (status) {
           query.status = status; // pending | inprogress | done | canceled
         }
@@ -247,11 +249,11 @@ async function run() {
       }
     });
 
-    // update donation request (donor / admin / volunteer)
+    // update donation request
     app.patch('/donation-requests/:id', async (req, res) => {
       try {
         const id = req.params.id;
-        const updatedData = req.body; // যে field পাঠাবে শুধু সেগুলোই update হবে
+        const updatedData = req.body;
         const filter = { _id: new ObjectId(id) };
         const updateDoc = {
           $set: updatedData,
@@ -265,7 +267,7 @@ async function run() {
       }
     });
 
-    // delete donation request (donor own / admin all)
+    // delete donation request
     app.delete('/donation-requests/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -291,6 +293,108 @@ async function run() {
         res.status(500).send({ message: 'Failed to create donation request' });
       }
     });
+
+    /* --------------------------- FUNDING (Stripe) --------------------------- */
+
+    // সব funding list
+    app.get("/fundings", async (req, res) => {
+      try {
+        const cursor = fundingCollection
+          .find({})
+          .sort({ createdAt: -1 });
+        const result = await cursor.toArray();
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to get fundings" });
+      }
+    });
+
+    // create checkout session for funding
+    app.post("/funding-checkout-session", async (req, res) => {
+      try {
+        const { amount, donorName, donorEmail } = req.body;
+
+        const numericAmount = parseInt(amount, 10);
+        if (!numericAmount || numericAmount <= 0) {
+          return res.status(400).send({ message: "Invalid amount" });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                unit_amount: numericAmount * 100, // dollar -> cent
+                product_data: {
+                  name: "Donation to Our Charity",
+                },
+              },
+              quantity: 1,
+            },
+          ],
+          mode: "payment",
+          customer_email: donorEmail,
+          metadata: {
+            donorName,
+            donorEmail,
+            type: "funding",
+          },
+          success_url: `${process.env.SITE_DOMAIN}/funding?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.SITE_DOMAIN}/funding`,
+        });
+
+        res.send({ url: session.url });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to create checkout session" });
+      }
+    });
+
+    // payment success confirm
+    app.get("/funding-success", async (req, res) => {
+      try {
+        const sessionId = req.query.session_id;
+        if (!sessionId) {
+          return res.status(400).send({ message: "Missing session_id" });
+        }
+
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        const transactionId = session.payment_intent;
+        const existing = await fundingCollection.findOne({ transactionId });
+        if (existing) {
+          return res.send({ message: "already exists", transactionId });
+        }
+
+        if (session.payment_status === "paid") {
+          const fund = {
+            donorName: session.metadata?.donorName || session.customer_email,
+            donorEmail: session.customer_email,
+            amount: session.amount_total / 100,
+            currency: session.currency,
+            transactionId: session.payment_intent,
+            paymentStatus: session.payment_status,
+            createdAt: new Date(),
+          };
+
+          const result = await fundingCollection.insertOne(fund);
+
+          return res.send({
+            success: true,
+            fundId: result.insertedId,
+            transactionId: session.payment_intent,
+          });
+        }
+
+        res.send({ success: false, message: "Payment not completed" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to confirm funding", error: err.message });
+      }
+    });
+
+    /* ---------------------------------------------------------------------- */
 
     await client.db('admin').command({ ping: 1 });
     console.log('MongoDB connected!');
