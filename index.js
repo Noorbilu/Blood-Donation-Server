@@ -382,7 +382,7 @@ async function run() {
             createdAt: new Date(),
           };
 
-          
+          const result = await fundingCollection.insertOne(fund);
 
           return res.send({
             success: true,
