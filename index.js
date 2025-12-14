@@ -314,7 +314,47 @@ async function run() {
       }
     });
 
-    
+    // create checkout session for funding
+    app.post("/funding-checkout-session", async (req, res) => {
+      try {
+        const { amount, donorName, donorEmail } = req.body;
+
+        const numericAmount = parseInt(amount, 10);
+        if (!numericAmount || numericAmount <= 0) {
+          return res.status(400).send({ message: "Invalid amount" });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                unit_amount: numericAmount * 100,
+                product_data: {
+                  name: "Donation to Our Charity",
+                },
+              },
+              quantity: 1,
+            },
+          ],
+          mode: "payment",
+          customer_email: donorEmail,
+          metadata: {
+            donorName,
+            donorEmail,
+            type: "funding",
+          },
+          success_url: `${process.env.SITE_DOMAIN}/funding?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.SITE_DOMAIN}/funding`,
+        });
+
+        res.send({ url: session.url });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to create checkout session" });
+      }
+    });
+
 
     await client.db('admin').command({ ping: 1 });
     console.log('MongoDB connected!');
