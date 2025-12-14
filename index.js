@@ -301,6 +301,19 @@ async function run() {
       }
     });
 
+    app.get("/fundings", async (req, res) => {
+      try {
+        const cursor = fundingCollection
+          .find({})
+          .sort({ createdAt: -1 });
+        const result = await cursor.toArray();
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to get fundings" });
+      }
+    });
+
     
 
     await client.db('admin').command({ ping: 1 });
