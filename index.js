@@ -355,6 +355,48 @@ async function run() {
       }
     });
 
+    // payment success confirm
+    app.get("/funding-success", async (req, res) => {
+      try {
+        const sessionId = req.query.session_id;
+        if (!sessionId) {
+          return res.status(400).send({ message: "Missing session_id" });
+        }
+
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        const transactionId = session.payment_intent;
+        const existing = await fundingCollection.findOne({ transactionId });
+        if (existing) {
+          return res.send({ message: "already exists", transactionId });
+        }
+
+        if (session.payment_status === "paid") {
+          const fund = {
+            donorName: session.metadata?.donorName || session.customer_email,
+            donorEmail: session.customer_email,
+            amount: session.amount_total / 100,
+            currency: session.currency,
+            transactionId: session.payment_intent,
+            paymentStatus: session.payment_status,
+            createdAt: new Date(),
+          };
+
+          
+
+          return res.send({
+            success: true,
+            fundId: result.insertedId,
+            transactionId: session.payment_intent,
+          });
+        }
+
+        res.send({ success: false, message: "Payment not completed" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to confirm funding", error: err.message });
+      }
+    });
 
     await client.db('admin').command({ ping: 1 });
     console.log('MongoDB connected!');
