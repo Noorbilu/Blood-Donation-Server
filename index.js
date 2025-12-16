@@ -5,9 +5,29 @@ require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000;
 
+
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./blood-donation-firebase-adminsdk-fbsvc.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+
 // middleware
 app.use(express.json());
 app.use(cors());
+
+const verifyFBToken = (req, res, next) => {
+  console.log('header', req.headers.authorization)
+  const token = req.headers.authorization;
+
+  if (!token) {
+    return res.status(401).send({ message: 'unauthorized access' })
+  }
+  next()
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@laa.0ndrbne.mongodb.net/?appName=Laa`;
 
@@ -25,7 +45,7 @@ async function run() {
   try {
     await client.connect();
 
-    const db = client.db('bloodDonation_db');
+    const db = client.db('redHope_db');
     const DonationCollection = db.collection('donation-requests');
     const usersCollection = db.collection('users');
     const fundingCollection = db.collection('fundings');
@@ -40,8 +60,8 @@ async function run() {
           return res.send({ message: 'user exists' });
         }
 
-        user.role = 'donor';
-        user.status = 'active';
+        user.role = 'donor';      
+        user.status = 'active'; 
         user.createdAt = new Date();
 
         const result = await usersCollection.insertOne(user);
@@ -52,17 +72,17 @@ async function run() {
       }
     });
 
-
+    
     app.get('/users', async (req, res) => {
       try {
         const { status, role, bloodGroup, district, upazila } = req.query;
         const query = {};
 
         if (status) {
-          query.status = status;
+          query.status = status; 
         }
         if (role) {
-          query.role = role;
+          query.role = role; 
         }
         if (bloodGroup) {
           query.bloodGroup = bloodGroup;
@@ -86,7 +106,7 @@ async function run() {
       }
     });
 
-
+  
     app.get('/users/profile/:email', async (req, res) => {
       try {
         const email = req.params.email;
@@ -136,7 +156,6 @@ async function run() {
       }
     });
 
-
     app.patch('/users/:id/status', async (req, res) => {
       try {
         const id = req.params.id;
@@ -154,10 +173,11 @@ async function run() {
       }
     });
 
+  
     app.patch('/users/:id/role', async (req, res) => {
       try {
         const id = req.params.id;
-        const { role } = req.body;
+        const { role } = req.body; 
 
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -196,8 +216,8 @@ async function run() {
       }
     });
 
-
-    app.get('/donation-requests', async (req, res) => {
+   
+    app.get('/donation-requests', verifyFBToken, async (req, res) => {
       try {
         const { email, status, bloodGroup, district, upazila } = req.query;
         const query = {};
@@ -205,11 +225,12 @@ async function run() {
         if (email) {
           query.requesterEmail = email;
         }
+
         if (status) {
-          query.status = status;
+          query.status = status; 
         }
 
-        // search filters 
+        
         if (bloodGroup) query.bloodGroup = bloodGroup;
         if (district) query.recipientDistrict = district;
         if (upazila) query.recipientUpazila = upazila;
@@ -223,9 +244,10 @@ async function run() {
         console.error(err);
         res.status(500).send({ message: 'Failed to get donation requests' });
       }
+
     });
 
-    // single donation request
+   
     app.get('/donation-requests/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -238,7 +260,7 @@ async function run() {
       }
     });
 
-    // update donation request
+ 
     app.patch('/donation-requests/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -256,7 +278,7 @@ async function run() {
       }
     });
 
-    // delete donation request
+
     app.delete('/donation-requests/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -269,36 +291,19 @@ async function run() {
       }
     });
 
-    // create donation request 
+ 
     app.post('/donation-requests', async (req, res) => {
       try {
         const donation = req.body;
-        const requesterEmail = donation.requesterEmail;
-
-        if (!requesterEmail) {
-          return res.status(400).send({ message: "Requester email is required" });
-        }
-        const requester = await usersCollection.findOne({ email: requesterEmail });
-
-        if (!requester) {
-          return res.status(404).send({ message: "Requester not found" });
-        }
-        if (requester.status === "blocked") {
-          return res
-            .status(403)
-            .send({ message: "Blocked users cannot create donation requests" });
-        }
         donation.createdAt = new Date();
-        donation.status = donation.status || "pending";
-
+        donation.status = donation.status || 'pending';
         const result = await DonationCollection.insertOne(donation);
         res.send(result);
       } catch (err) {
         console.error(err);
-        res
-          .status(500)
-          .send({ message: "Failed to create donation request" });
+        res.status(500).send({ message: 'Failed to create donation request' });
       }
+
     });
 
     app.get("/fundings", async (req, res) => {
@@ -314,7 +319,7 @@ async function run() {
       }
     });
 
-    // create checkout session for funding
+  
     app.post("/funding-checkout-session", async (req, res) => {
       try {
         const { amount, donorName, donorEmail } = req.body;
@@ -331,7 +336,7 @@ async function run() {
                 currency: "usd",
                 unit_amount: numericAmount * 100,
                 product_data: {
-                  name: "Donation to Our Charity",
+                  name: "Donation to RedHope",
                 },
               },
               quantity: 1,
@@ -355,7 +360,6 @@ async function run() {
       }
     });
 
-    // payment success confirm
     app.get("/funding-success", async (req, res) => {
       try {
         const sessionId = req.query.session_id;
@@ -398,10 +402,11 @@ async function run() {
       }
     });
 
+
     await client.db('admin').command({ ping: 1 });
     console.log('MongoDB connected!');
   } finally {
-
+    
   }
 }
 run().catch(console.dir);
